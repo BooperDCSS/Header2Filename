@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,7 +14,7 @@ import (
 )
 
 func processFiles(targetDir string) error {
-	acceptedTypes := []string{".md", ".txt", ".odt", ".doc", ".docx", ".pdf", ".rtf"}
+	acceptedTypes := []string{".md", ".txt", ".odt", ".doc", ".docx", ".rtf"}
 	dirTree, err := os.ReadDir(targetDir)
 	if err != nil {
 		return fmt.Errorf("Error reading directory: %w", err)
@@ -24,6 +26,7 @@ func processFiles(targetDir string) error {
 			new_target := filepath.Join(targetDir, entry.Name())
 			fmt.Printf("%s is a directory; going recursive\n", entry.Name())
 			processFiles(new_target)
+			continue
 		}
 
 		fullFilePath := filepath.Join(targetDir, entry.Name())
@@ -52,8 +55,14 @@ func processFiles(targetDir string) error {
 func renameCopy(fullFilePath, newTitle string) error {
 
 	copyFileDir := filepath.Join(filepath.Dir(fullFilePath), "renamed_copies")
-	if err := os.MkdirAll(copyFileDir, 0755); err != nil {
-		return fmt.Errorf("Error creating new directory: %w", err)
+
+	_, err := os.Stat(copyFileDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(copyFileDir, 0755); err != nil {
+			return fmt.Errorf("Error creating new directory: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("Error checking directory's existence: %w", err)
 	}
 
 	newPath := filepath.Join(copyFileDir, newTitle)
@@ -93,16 +102,19 @@ func getFirstLine(fullFilePath string) (string, error) {
 	return firstLine, nil
 }
 
-func cleanFirstLine(headerText string) string {
-	noOctothorpesHeader := strings.TrimSpace(strings.Trim(headerText, "#"))
+func cleanFirstLine(firstLine string) string {
 
-	replacer := strings.NewReplacer("/", "_", "^", "_", ", ", "_", "+", "plus", "!", "", "... ", "_", "...", "",
-		".", "dot_", "'", "", "**", "double_star_", "*", "star_", "(", "-", ")", "-", "[", "_", "]", "_", ":", "_")
-	noFunkySymbols := replacer.Replace(noOctothorpesHeader)
+	replacer := strings.NewReplacer("/", "_", "^", "_", ",", "_", "+", "plus", "!", "", "...", "_",
+		".", "dot_", "'", "", "**", "double_star_", "*", "star_", "(", "", ")", "",
+		"[", "_", "]", "_", ":", "_", " ", "_", "…", "")
+	removeSymbols := replacer.Replace(firstLine)
 
-	if gomoji.ContainsEmoji(noFunkySymbols) {
-		noFunkySymbols = gomoji.ReplaceEmojisWithSlug(noFunkySymbols)
+	if gomoji.ContainsEmoji(removeSymbols) {
+		removeSymbols = gomoji.RemoveEmojis(removeSymbols)
 	}
-	return noFunkySymbols
+
+	cleanFileName := strings.TrimSpace(strings.Trim(removeSymbols, "#!_"))
+
+	return cleanFileName
 
 }
